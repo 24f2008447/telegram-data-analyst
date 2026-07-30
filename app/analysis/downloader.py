@@ -4,11 +4,39 @@ URL/content-type. Supports CSV, Excel, JSON, ZIP (extracted), and raw HTML
 (for pd.read_html table extraction).
 """
 import os
+import re
 import uuid
 import zipfile
 import requests
+from urllib.parse import urljoin
+from bs4 import BeautifulSoup
 
 from app.config import settings
+
+_DATA_FILE_RE = re.compile(r"\.(csv|xlsx|xls|json|zip)(\?.*)?$", re.IGNORECASE)
+_DATA_KEYWORD_RE = re.compile(r"(download|resource|api/datastore|export)", re.IGNORECASE)
+
+
+def extract_data_links(html_text: str, base_url: str, max_links: int = 5) -> list:
+    """Best-effort: scan an HTML landing/catalog page for links that plausibly
+    point at an actual downloadable data file (direct file extension match first,
+    then generic 'download/resource/api' keyword links as a weaker signal).
+    Used when a dataset URL resolves to a webpage rather than a data file
+    (common for government open-data catalog pages)."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    direct, keyword = [], []
+    for a in soup.find_all("a", href=True):
+        href = urljoin(base_url, a["href"])
+        if _DATA_FILE_RE.search(href):
+            direct.append(href)
+        elif _DATA_KEYWORD_RE.search(href):
+            keyword.append(href)
+    ordered, seen = [], set()
+    for href in direct + keyword:
+        if href not in seen:
+            seen.add(href)
+            ordered.append(href)
+    return ordered[:max_links]
 
 os.makedirs(settings.download_dir, exist_ok=True)
 

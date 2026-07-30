@@ -37,18 +37,44 @@ class ExecutionError(RuntimeError):
     pass
 
 
-def _try_load_url(url: str) -> Optional[pd.DataFrame]:
+def _try_load_url(url: str, logger=None, _depth: int = 0) -> Optional[pd.DataFrame]:
     try:
         dl = downloader.download(url)
         return parser.load_file(dl["path"], dl["format"])
     except Exception:
+        pass
+
+    # If it resolved to an HTML page with no usable <table> (common for
+    # government open-data catalog/landing pages), crawl it one level deep
+    # for an actual data-file link (e.g. the real CSV/ZIP behind a "Download"
+    # button) instead of giving up immediately.
+    if _depth >= 1:
         return None
+    try:
+        dl = downloader.download(url)
+        if dl["format"] != "html":
+            return None
+        with open(dl["path"], "r", encoding="utf-8") as f:
+            html_text = f.read()
+    except Exception:
+        return None
+
+    candidate_links = downloader.extract_data_links(html_text, url)
+    if logger:
+        logger.log("html_page_crawled", url=url, candidate_links=candidate_links)
+    for link in candidate_links:
+        df = _try_load_url(link, logger=logger, _depth=_depth + 1)
+        if df is not None:
+            if logger:
+                logger.log("dataset_loaded_from_crawled_link", url=link)
+            return df
+    return None
 
 
 def _resolve_one_dataset(url: Optional[str], hint: str, logger=None) -> pd.DataFrame:
     # 1. Try the planner's own URL guess first, if it gave one.
     if url:
-        df = _try_load_url(url)
+        df = _try_load_url(url, logger=logger)
         if df is not None:
             if logger:
                 logger.log("dataset_loaded_from_planner_url", url=url)
@@ -66,7 +92,7 @@ def _resolve_one_dataset(url: Optional[str], hint: str, logger=None) -> pd.DataF
         logger.log("websearch_candidates", query=query, candidates=candidates[:MAX_CANDIDATE_DOWNLOADS])
 
     for candidate in candidates[:MAX_CANDIDATE_DOWNLOADS]:
-        df = _try_load_url(candidate)
+        df = _try_load_url(candidate, logger=logger)
         if df is not None:
             if logger:
                 logger.log("dataset_loaded_from_search", url=candidate)
@@ -87,7 +113,7 @@ def _resolve_one_dataset(url: Optional[str], hint: str, logger=None) -> pd.DataF
     if guessed_url:
         if logger:
             logger.log("llm_url_guess", query=query, url=guessed_url)
-        df = _try_load_url(guessed_url)
+        df = _try_load_url(guessed_url, logger=logger)
         if df is not None:
             if logger:
                 logger.log("dataset_loaded_from_llm_guess", url=guessed_url)
