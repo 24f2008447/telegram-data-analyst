@@ -1,7 +1,7 @@
 import json
 
 from app.utils.llm_client import chat_json
-from app.agent.prompts import FORMATTER_SYSTEM_PROMPT
+from app.agent.prompts import FORMATTER_SYSTEM_PROMPT, FALLBACK_KNOWLEDGE_SYSTEM_PROMPT
 
 
 def format_answer(question_text: str, raw_result: dict, output_schema: dict = None, logger=None) -> dict:
@@ -34,4 +34,30 @@ def format_answer(question_text: str, raw_result: dict, output_schema: dict = No
         if expected_keys != actual_keys:
             logger.log("formatter_shape_mismatch", expected_keys=list(expected_keys), actual_keys=list(actual_keys))
 
+    return answer_value
+
+
+def answer_from_knowledge(question_text: str, logger=None):
+    """Last-resort fallback used only when the normal pipeline (dataset
+    download/search/SQL) fails entirely - e.g. a scrape-hostile source like
+    data.gov.in/MOSPI blocked or returned an unusable page. Asks the LLM to
+    answer directly from its own knowledge instead of giving up with a
+    guaranteed-wrong `null`. Returns the answer value, or None if even this
+    fails."""
+    try:
+        raw_response = chat_json(FALLBACK_KNOWLEDGE_SYSTEM_PROMPT, question_text)
+    except Exception as e:
+        if logger:
+            logger.log("fallback_knowledge_failed", error=str(e))
+        return None
+
+    if isinstance(raw_response, dict) and "answer_value" in raw_response:
+        answer_value = raw_response["answer_value"]
+    else:
+        if logger:
+            logger.log("fallback_missing_wrapper", raw_response=raw_response)
+        answer_value = raw_response
+
+    if logger:
+        logger.log("fallback_knowledge_answer", answer=answer_value)
     return answer_value

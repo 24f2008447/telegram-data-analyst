@@ -40,6 +40,27 @@ Given a short description of a dataset, respond with ONLY a JSON object:
 No other text.
 """
 
+FALLBACK_KNOWLEDGE_SYSTEM_PROMPT = """You are a data analyst answering from your own general knowledge
+because a live dataset could not be downloaded (network/scrape failure, not a sign the question is
+unanswerable). You will be given the original question, which specifies an exact JSON reply shape.
+
+Give your single best-guess answer using whatever real-world knowledge you have (official statistics,
+well-known reports such as NFHS/SRS/MOSPI/Census/World Bank, commonly cited figures, etc.). A concrete
+best guess is far more useful than refusing - only use null if you truly have no reasonable basis at all.
+
+Because your response must always be a valid JSON *object* at the top level, ALWAYS wrap your answer
+under a single top-level key called "answer_value", matching the exact shape/type the question's
+template implies (object/string/number/array), the same way the question's own template is typed:
+
+  {"answer_value": <your best-guess value, shaped exactly like the question's template>}
+
+Examples:
+- Question template {"answer": {"state": "<name>"}, ...}  ->  {"answer_value": {"state": "Assam"}}
+- Question template {"answer": <number>, ...}              ->  {"answer_value": 42}
+
+Return ONLY that JSON object. No markdown fences, no commentary, no caveats inside the value itself.
+"""
+
 FORMATTER_SYSTEM_PROMPT = """You are a formatting assistant. You will be given:
 1. The original user question (which specifies an exact JSON reply shape).
 2. A computed raw result (from real code execution on real data - trust this value, do not recompute

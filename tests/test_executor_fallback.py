@@ -12,13 +12,13 @@ def test_resolve_dataset_uses_planner_url_when_it_works():
     with patch("app.agent.executor._try_load_url", return_value=_df({"a": [1, 2]})) as mock_load:
         df = executor._resolve_one_dataset("https://example.com/data.csv", "some hint")
         assert df is not None
-        mock_load.assert_called_once_with("https://example.com/data.csv")
+        mock_load.assert_called_once_with("https://example.com/data.csv", logger=None)
 
 
 def test_resolve_dataset_falls_back_to_websearch_when_url_fails():
     calls = {"n": 0}
 
-    def fake_try_load(url):
+    def fake_try_load(url, logger=None):
         calls["n"] += 1
         if url == "https://good.example.com/data.csv":
             return _df({"a": [1]})
