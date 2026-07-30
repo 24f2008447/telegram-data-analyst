@@ -18,6 +18,7 @@ import pandas as pd
 
 from app.analysis import downloader, parser, sql_engine, websearch
 from app.utils.llm_client import chat_json
+from app.agent.prompts import EXECUTOR_SEARCH_SYSTEM_PROMPT
 
 SQL_WRITER_PROMPT = """You write a single DuckDB SQL query to answer a data question.
 You are given the table name(s), their columns/dtypes, and the operation to perform.
@@ -72,6 +73,27 @@ def _resolve_one_dataset(url: Optional[str], hint: str, logger=None) -> pd.DataF
             return df
         if logger:
             logger.log("candidate_failed", url=candidate)
+
+    # 3. Last resort: web search returned nothing usable (e.g. blocked from this
+    # host's IP) - ask the LLM directly for its best-guess direct download URL.
+    try:
+        guess = chat_json(EXECUTOR_SEARCH_SYSTEM_PROMPT, query)
+        guessed_url = guess.get("url")
+    except Exception as e:
+        guessed_url = None
+        if logger:
+            logger.log("llm_url_guess_failed", error=str(e))
+
+    if guessed_url:
+        if logger:
+            logger.log("llm_url_guess", query=query, url=guessed_url)
+        df = _try_load_url(guessed_url)
+        if df is not None:
+            if logger:
+                logger.log("dataset_loaded_from_llm_guess", url=guessed_url)
+            return df
+        if logger:
+            logger.log("llm_guess_failed", url=guessed_url)
 
     raise ExecutionError(f"Could not download/parse any dataset for hint: {query!r}")
 
